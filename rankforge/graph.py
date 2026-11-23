@@ -60,8 +60,8 @@ class RFState(MessagesState):
 @lru_cache(maxsize=None)
 def llm(kind: str = "chat"):
     max_tokens = {"chat": CHAT_MAX_TOKENS, "writer": ARTICLE_MAX_TOKENS, "small": 500}[kind]
-    return ChatAnthropic(model=ANTHROPIC_MODEL, max_tokens=max_tokens, temperature=0.3 if kind == "writer" else 0,
-                         timeout=90, max_retries=2)
+    # no temperature: claude-haiku-5-5 rejects the temperature parameter
+    return ChatAnthropic(model=ANTHROPIC_MODEL, max_tokens=max_tokens, timeout=90, max_retries=2)
 
 
 def last_human(state) -> str:
