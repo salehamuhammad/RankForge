@@ -1,0 +1,22 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live blog · RankForge</title><link rel="stylesheet" href="style.css"></head>
+<body><main>
+<div class="row"><h2 style="margin:0" id="h">Live blog</h2><span class="spacer"></span>
+  <input id="b" placeholder="business id" style="width:220px"><button class="btn sm" onclick="go()">Open blog</button></div>
+<p class="muted">Published articles for a business. Only articles the owner approved appear here.</p>
+<div id="list" class="grid3"></div>
+</main><script src="config.js"></script><script src="app.js"></script><script>
+navbar("blog.html");
+const params = new URLSearchParams(location.search);
+function go() { const b = document.getElementById("b").value.trim(); if (b) location.search = "?b=" + encodeURIComponent(b); }
+async function load() {
+  const b = params.get("b") || auth.user; if (!b) { document.getElementById("list").innerHTML = "<p class='muted'>Enter a business id.</p>"; return; }
+  document.getElementById("b").value = b; document.getElementById("h").textContent = b + " · blog";
+  const posts = await fetch(API + "/api/public/blog/" + encodeURIComponent(b)).then(r => r.json());
+  document.getElementById("list").innerHTML = posts.length ? posts.map(p => `<a class="card" style="text-decoration:none;color:inherit" href="post.html?id=${p.id}">
+     <span class="pill">published</span><h3>${esc(p.title)}</h3><p class="muted">${esc(p.meta_description)}</p>
+     <span class="muted" style="font-size:12px">${new Date(p.published_at).toLocaleDateString()}</span></a>`).join("")
+    : "<p class='muted'>No published articles yet.</p>";
+}
+load();
+</script></body></html>

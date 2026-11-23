@@ -1,0 +1,5 @@
+{
+  "dependencies": ["."],
+  "graphs": {"rankforge": "./rankforge/studio.py:graph"},
+  "env": ".env"
+}

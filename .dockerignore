@@ -1,0 +1,8 @@
+.env
+.venv
+venv
+web
+tests
+docs
+__pycache__
+*.pyc

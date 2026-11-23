@@ -1,0 +1,46 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>New article · RankForge</title><link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script></head>
+<body><main>
+<div class="row"><h2 style="margin:0">Request a new article</h2><span class="spacer"></span>
+  <span class="muted" style="font-size:13px">Conversation: <code id="tid"></code></span>
+  <button class="btn ghost sm" onclick="newThread()">New conversation</button></div>
+<p class="muted">Tell RankForge your niche and tone once (it remembers across conversations), then ask for an article.</p>
+<div class="chat" id="chat"></div>
+<div class="row" style="margin-top:10px">
+  <button class="btn ghost sm" onclick="send('Write an article on best laptops under 100k PKR')">Best laptops under 100k</button>
+  <button class="btn ghost sm" onclick="send('Our niche is electronics for students. Our brand tone is friendly and simple.')">Set niche + tone</button>
+  <button class="btn sm" onclick="send('approve')">Approve</button>
+  <button class="btn bad sm" onclick="send('reject')">Reject</button>
+  <button class="btn ghost sm" onclick="send('Show my click stats')">Click stats</button>
+</div>
+<form class="composer" onsubmit="event.preventDefault();send(document.getElementById('m').value)">
+  <input id="m" placeholder="e.g. Write an article on best phones under 50k PKR" autocomplete="off"><button class="btn" id="sendBtn">Send</button>
+</form>
+</main>
+<script src="config.js"></script><script src="app.js"></script><script>
+navbar("new.html");
+const key = () => "rf_thread_" + auth.user;
+function thread() { let t = localStorage.getItem(key()); if (!t) { t = "web-" + Math.random().toString(36).slice(2, 9); localStorage.setItem(key(), t); } return t; }
+function newThread() { localStorage.removeItem(key()); document.getElementById("chat").innerHTML = ""; init(); }
+function bubble(who, html, tools) {
+  const c = document.getElementById("chat");
+  c.insertAdjacentHTML("beforeend", `<div class="msg ${who}">${html}${tools && tools.length ? `<div class="tools">tools: ${tools.map(t => `<code>${esc(t.name)}</code>`).join("")}</div>` : ""}</div>`);
+  c.scrollTop = c.scrollHeight;
+}
+async function send(text) {
+  text = (text || "").trim(); if (!text || !requireLogin()) return;
+  document.getElementById("m").value = ""; bubble("user", esc(text));
+  const btn = document.getElementById("sendBtn"); btn.disabled = true; bubble("bot", "<span class='muted'>Working… (articles take up to a minute)</span>");
+  try {
+    const r = await api("/chat", { method: "POST", body: JSON.stringify({ user_id: auth.user, thread_id: thread(), message: text }) });
+    document.querySelector("#chat .msg.bot:last-child").remove();
+    bubble("bot", md(r.reply) + `<div class="tools">tokens: ${r.tokens.in} in / ${r.tokens.out} out</div>`, r.tool_calls);
+  } catch (e) { document.querySelector("#chat .msg.bot:last-child").innerHTML = "Error: " + esc(e.message); }
+  btn.disabled = false;
+}
+function init() { if (!auth.user) { openLogin(); return; } document.getElementById("tid").textContent = thread();
+  if (!document.getElementById("chat").children.length) bubble("bot", md(`Hi **${esc(auth.user)}**! What should we write? I'll research keywords, draft, fact-check and wait for your approval before publishing.`)); }
+window.onLogin = init; init();
+</script></body></html>

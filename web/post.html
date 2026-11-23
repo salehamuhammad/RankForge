@@ -1,0 +1,26 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RankForge blog</title><meta name="description" content=""><link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script></head>
+<body><main><article class="post" id="post"><p class="muted">Loading…</p></article></main>
+<script src="config.js"></script><script src="app.js"></script><script>
+navbar("blog.html");
+(async () => {
+  const id = new URLSearchParams(location.search).get("id");
+  const r = await fetch(API + "/api/public/posts/" + encodeURIComponent(id));   // counts a view
+  if (!r.ok) { document.getElementById("post").innerHTML = "<h1>Not found</h1>"; return; }
+  const p = await r.json();
+  document.title = p.title; document.querySelector("meta[name=description]").content = p.meta_description;
+  const el = document.getElementById("post");
+  el.innerHTML = `<a href="blog.html?b=${encodeURIComponent(p.business_id)}">← ${esc(p.business_id)} blog</a><h1>${esc(p.title)}</h1>
+    <p class="muted">${esc(p.meta_description)}</p>${md(p.body)}
+    <h3>Links</h3><ul>${(p.links || []).map(l => `<li><a href="${esc(l.url)}">${esc(l.title)}</a> <span class="pill">${esc(l.type || "source")}</span></li>`).join("")}</ul>`;
+  // every outbound link goes through the API so clicks are counted (affiliate tracking)
+  const allowed = new Set((p.links || []).map(l => l.url));
+  el.querySelectorAll("a[href^='http']").forEach(a => {
+    if (allowed.has(a.href) || allowed.has(a.getAttribute("href"))) {
+      a.href = `${API}/r/${p.id}?u=${encodeURIComponent(a.getAttribute("href"))}`; a.target = "_blank"; a.rel = "nofollow sponsored noopener";
+    }
+  });
+})();
+</script></body></html>

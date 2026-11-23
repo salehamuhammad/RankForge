@@ -1,0 +1,75 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard · RankForge</title><link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script></head>
+<body><main>
+<div class="row"><h2 style="margin:0">Admin dashboard</h2><span class="spacer"></span><button class="btn ghost sm" onclick="loadAll()">Refresh</button></div>
+<p class="muted">Only your business's data is shown. Every API call is checked against your login token.</p>
+<div class="grid4" id="kpis"></div>
+<div class="tabs" id="tabs"></div>
+<section id="queue"></section><section id="articles" hidden></section><section id="keywords" hidden></section>
+<section id="clicks" hidden></section><section id="usage" hidden></section><section id="memory" hidden></section>
+<div class="modal" id="preview"><div class="card" style="width:min(780px,92vw);max-height:85vh;overflow:auto" id="pv"></div></div>
+</main><script src="config.js"></script><script src="app.js"></script><script>
+navbar("admin.html");
+const TABS = [["queue", "Approval queue"], ["articles", "All articles"], ["keywords", "Keywords"], ["clicks", "Clicks"], ["usage", "Usage & cost"], ["memory", "Memory"]];
+document.getElementById("tabs").innerHTML = TABS.map(([id, t], i) => `<button class="${i ? "" : "on"}" onclick="tab('${id}',this)">${t}</button>`).join("");
+function tab(id, b) { TABS.forEach(([t]) => document.getElementById(t).hidden = t !== id); document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b)); }
+let ARTS = [];
+const pill = s => `<span class="pill ${s}">${s.replace("_", " ")}</span>`;
+function articleRows(list, actions) {
+  if (!list.length) return "<p class='muted'>Nothing here yet.</p>";
+  return `<table><tr><th>Title</th><th>Topic</th><th>Status</th><th>Fact-check</th><th>Created</th><th></th></tr>${list.map(a => `<tr>
+    <td><a href="#" onclick="preview('${a.id}');return false">${esc(a.title)}</a><br><span class="muted" style="font-size:12px">${a.id}</span></td>
+    <td>${esc(a.topic)}</td><td>${pill(a.status)}</td>
+    <td>${a.fact_check && a.fact_check.passed ? "✅ passed" : "❌ " + esc((a.fact_check.unsupported || []).length + " unsupported")}</td>
+    <td>${new Date(a.created_at).toLocaleString()}</td>
+    <td class="row">${actions && a.status === "pending" ? `<button class="btn sm" onclick="decide('${a.id}','approve')">Approve</button><button class="btn bad sm" onclick="decide('${a.id}','reject')">Reject</button>` : ""}
+      ${a.live_url ? `<a href="${esc(a.live_url)}" target="_blank">live ↗</a>` : ""}</td></tr>`).join("")}</table>`;
+}
+function preview(id) {
+  const a = ARTS.find(x => x.id === id); const pv = document.getElementById("pv");
+  pv.innerHTML = `<div class="row"><h3 style="margin:0">${esc(a.title)}</h3><span class="spacer"></span><button class="btn ghost sm" onclick="document.getElementById('preview').classList.remove('open')">Close</button></div>
+   <p class="muted">${esc(a.meta_description)}</p>${md(a.body)}<h4>Claims and sources</h4><ul>${(a.claims || []).map(c => `<li>${esc(c.text)} → ${c.source_url ? `<a href="${esc(c.source_url)}" target="_blank">${esc(c.source_url)}</a>` : "<b style='color:var(--bad)'>no source</b>"}</li>`).join("")}</ul>
+   ${a.status === "pending" ? `<div class="row"><button class="btn" onclick="decide('${a.id}','approve')">Approve & publish</button><button class="btn bad" onclick="decide('${a.id}','reject')">Reject</button></div>` : ""}`;
+  document.getElementById("preview").classList.add("open");
+}
+async function decide(id, what) {
+  if (what === "approve" && !confirm("Publish this article to your live blog?")) return;
+  try { await api(`/api/me/articles/${id}/${what}`, { method: "POST" }); document.getElementById("preview").classList.remove("open"); loadAll(); }
+  catch (e) { alert(e.message); }
+}
+function bars(rows) {
+  if (!rows.length) return "<p class='muted'>No views or clicks yet. Open a published post to generate some.</p>";
+  const max = Math.max(1, ...rows.map(r => Math.max(r.views, r.clicks))), w = 640, h = 220, bw = Math.max(8, (w - 40) / rows.length / 2.6);
+  return `<svg viewBox="0 0 ${w} ${h + 40}" style="width:100%;max-width:${w}px">${rows.map((r, i) => {
+    const x = 30 + i * (w - 40) / rows.length, vh = r.views / max * h, ch = r.clicks / max * h;
+    return `<rect x="${x}" y="${h - vh}" width="${bw}" height="${vh}" fill="#9cc9b6"><title>${r.views} views</title></rect>
+      <rect x="${x + bw + 2}" y="${h - ch}" width="${bw}" height="${ch}" fill="#0f6b4f"><title>${r.clicks} clicks</title></rect>
+      <text x="${x}" y="${h + 16}" font-size="10" fill="#5d6470">${esc((r.day || r.title || "").slice(5, 10) || (r.title || "").slice(0, 10))}</text>`;
+  }).join("")}<line x1="25" y1="${h}" x2="${w}" y2="${h}" stroke="#e4e6ea"/></svg>
+  <p class="muted" style="font-size:12px"><span style="color:#9cc9b6">■</span> views <span style="color:#0f6b4f">■</span> affiliate/source link clicks</p>`;
+}
+async function loadAll() {
+  if (!requireLogin()) return;
+  const [arts, kws, stats, usage, mem] = await Promise.all([api("/api/me/articles"), api("/api/me/keywords"), api("/api/me/stats"), api("/api/me/usage"), api("/api/me/memory")]);
+  ARTS = arts;
+  const pending = arts.filter(a => a.status === "pending"), published = arts.filter(a => a.status === "published");
+  const clicks = stats.posts.reduce((s, p) => s + p.clicks, 0), views = stats.posts.reduce((s, p) => s + p.views, 0);
+  document.getElementById("kpis").innerHTML = [[pending.length, "awaiting approval"], [published.length, "published"], [views + " / " + clicks, "views / clicks"], ["$" + usage.cost_usd.toFixed(4), "estimated AI cost"]]
+    .map(([v, l]) => `<div class="card stat"><b>${v}</b><span>${l}</span></div>`).join("");
+  document.getElementById("queue").innerHTML = `<h3>Waiting for your approval</h3>` + articleRows(pending, true);
+  document.getElementById("articles").innerHTML = `<h3>All articles</h3>` + articleRows(arts, true);
+  document.getElementById("keywords").innerHTML = `<h3>Keyword list</h3><p class="muted">From Google Autocomplete (Pakistan). Volume and difficulty are estimates.</p>` +
+    (kws.length ? `<table><tr><th>Keyword</th><th>Est. volume</th><th>Difficulty</th><th>Intent</th><th>Topic</th></tr>${kws.map(k => `<tr><td>${esc(k.keyword)}</td><td>${k.volume}</td><td>${k.difficulty}</td><td>${esc(k.intent)}</td><td>${esc(k.topic)}</td></tr>`).join("")}</table>` : "<p class='muted'>No keywords yet.</p>");
+  document.getElementById("clicks").innerHTML = `<h3>Clicks per day (30 days)</h3>${bars(stats.by_day)}<h3>Per article</h3>` +
+    (stats.posts.length ? `<table><tr><th>Article</th><th>Views</th><th>Clicks</th><th></th></tr>${stats.posts.map(p => `<tr><td>${esc(p.title)}</td><td>${p.views}</td><td>${p.clicks}</td><td><a href="${esc(p.live_url)}" target="_blank">open ↗</a></td></tr>`).join("")}</table>` : "<p class='muted'>No published posts.</p>");
+  document.getElementById("usage").innerHTML = `<h3>Usage and cost</h3><div class="grid4">${[[usage.requests, "agent requests"], [usage.tokens_in.toLocaleString(), "input tokens"], [usage.tokens_out.toLocaleString(), "output tokens"], [usage.avg_latency_ms + " ms", "avg response time"]].map(([v, l]) => `<div class="card stat"><b>${v}</b><span>${l}</span></div>`).join("")}</div>
+    <p class="muted">Estimated cost: <b>$${usage.cost_usd.toFixed(4)}</b>. Refusals and duplicate requests cost 0 tokens. Each user has a spend cap.</p>`;
+  document.getElementById("memory").innerHTML = `<h3>Long-term memory (this business only)</h3>
+    <table><tr><th>Niche</th><td>${esc(mem.profile.niche || "-")}</td></tr><tr><th>Brand tone</th><td>${esc(mem.profile.tone || "-")}</td></tr><tr><th>Audience</th><td>${esc(mem.profile.audience || "-")}</td></tr>
+    <tr><th>Approved affiliate links</th><td>${mem.affiliate_links.map(l => esc(l.url)).join("<br>") || "-"}</td></tr>
+    <tr><th>Past topics</th><td>${mem.past_topics.map(esc).join(", ") || "-"}</td></tr><tr><th>Saved facts</th><td>${mem.facts.map(esc).join("<br>") || "-"}</td></tr></table>`;
+}
+window.onLogin = loadAll; loadAll();
+</script></body></html>
