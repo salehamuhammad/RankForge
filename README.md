@@ -16,7 +16,7 @@ keywords, writes a fact-checked article with sources and affiliate links, waits 
 live blog, and the dashboard shows the clicks.
 
 **Group:** G26 · **Members:** Areeba Javed, Fatima Khursheed, Saleha Muhammad, Minahil Kashif
-**Live website:** https://rank-forge-weld.vercel.app · **Agent API:** https://rankforge-qx8p.onrender.com · **Demo video:** _link_ · **Canvas photo:** _link_
+**Live website:** https://rank-forge-weld.vercel.app · **Agent API:** https://rankforge-qx8p.onrender.com · **Demo video:** https://drive.google.com/file/d/1FOe3OMuwse0WOuiD1crTkvky3qfV5MHF/view?usp=sharing · **Canvas photo:** _link_
 
 Model: `claude-haiku-5-5` (Anthropic). Agent: LangGraph `StateGraph` with 11 nodes. Memory: Postgres (Neon).
 
