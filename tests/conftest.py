@@ -45,7 +45,10 @@ class FakeRaw:
         for k, v in list(args.items()):
             if isinstance(v, list):
                 args[k] = json.dumps(v)
-        raw = AIMessage("", tool_calls=[{"name": self.inner.schema.__name__, "args": args, "id": "s1"}])
+        text = ""
+        if "body" in args:                       # like the live bug: article written outside the 'body' field
+            text = args.pop("body") + "\n" + "Extra words to make the article long enough. " * 6
+        raw = AIMessage(text, tool_calls=[{"name": self.inner.schema.__name__, "args": args, "id": "s1"}])
         return {"raw": raw, "parsed": None, "parsing_error": ValueError("claims: Input should be a valid list")}
 
 

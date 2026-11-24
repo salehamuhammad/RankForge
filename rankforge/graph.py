@@ -189,7 +189,8 @@ class Link(BaseModel):
 class ArticleDraft(BaseModel):
     title: str = Field(description="SEO title under 65 characters containing the primary keyword")
     meta_description: str = Field(description="under 155 characters")
-    body: str = Field(description="Markdown article, 350-550 words, H2 sections, inline citations like [1]")
+    body: str = Field(description="REQUIRED. The full article in Markdown, 350-550 words, H2 sections, inline "
+                                  "citations like [1]. Put the whole article text in this field.")
     claims: list[Claim]
     links: list[Link] = Field(description="every source cited plus any approved affiliate links used")
 
@@ -208,9 +209,23 @@ def _coerce(value):
     return value
 
 
-def _normalise(schema, data: dict) -> dict:
+BODY_KEYS = ("body", "body_markdown", "content", "article", "article_body", "markdown", "text", "article_text", "draft")
+
+
+def _normalise(schema, data: dict, raw_text: str = "") -> dict:
     data = _coerce(data)
     if schema is ArticleDraft:
+        # Haiku sometimes names the article field differently, or writes the article as plain text
+        # next to the tool call. Recover it from wherever it is.
+        if not str(data.get("body") or "").strip():
+            alt = next((data[k] for k in BODY_KEYS[1:] if isinstance(data.get(k), str) and len(data[k]) > 200), "")
+            if not alt and len(raw_text.strip()) > 200:
+                alt = raw_text.strip()
+            if not alt:
+                strings = [v for k, v in data.items() if isinstance(v, str) and k not in ("title", "meta_description")]
+                alt = max(strings, key=len, default="")
+            data["body"] = alt
+        data["title"] = str(data.get("title") or data.get("headline") or "Untitled article")[:120]
         claims = []
         for c in data.get("claims") or []:
             if isinstance(c, str):
@@ -242,12 +257,19 @@ def structured(kind: str, schema, messages: list, config):
         return out["parsed"]
     raw = out.get("raw")
     calls = getattr(raw, "tool_calls", None) or []
-    if calls:
-        return schema.model_validate(_normalise(schema, dict(calls[0].get("args") or {})))
     text = getattr(raw, "text", "") or ""
+    if not isinstance(text, str):
+        text = str(text)
+    if calls:
+        return schema.model_validate(_normalise(schema, dict(calls[0].get("args") or {}), text))
     m = re.search(r"\{.*\}", text, re.S)
     if m:
-        return schema.model_validate(_normalise(schema, json.loads(m.group(0))))
+        try:
+            return schema.model_validate(_normalise(schema, json.loads(m.group(0)), text))
+        except Exception:
+            pass
+    if schema is ArticleDraft and len(text.strip()) > 200:
+        return schema.model_validate(_normalise(schema, {}, text))
     raise ValueError(f"no structured output ({out.get('parsing_error')})")
 
 
@@ -305,7 +327,23 @@ def writer(state: RFState, config: RunnableConfig, runtime: Runtime[RFContext]):
         draft = structured("writer", ArticleDraft,
                            [SystemMessage(writer_prompt(state, ctx, runtime.store)),
                             HumanMessage(f"Write the article now. User request: {last_human(state)[:500]}")], config)
-        update["draft"] = draft.model_dump()
+        d = draft.model_dump()
+        # If the model cited sources as [n] in the text but left `links` empty, add exactly those cited sources.
+        cited = {int(n) for n in re.findall(r"\[(\d{1,2})\]", d.get("body", ""))}
+        have = {l.get("url") for l in d.get("links") or []}
+        for i, src in enumerate(sources, 1):
+            if i in cited and src["url"] not in have:
+                d.setdefault("links", []).append({"title": src["title"], "url": src["url"], "type": "source"})
+        # claims that cite [n] in their own text but have no URL get that source's URL
+        for c in d.get("claims") or []:
+            if not c.get("source_url"):
+                m = re.search(r"\[(\d{1,2})\]", c.get("text", ""))
+                if m and 1 <= int(m.group(1)) <= len(sources):
+                    c["source_url"] = sources[int(m.group(1)) - 1]["url"]
+        if d.get("links") and "## Sources" not in d.get("body", ""):
+            d["body"] = d["body"].rstrip() + "\n\n## Sources\n" + "\n".join(
+                f"- [{l['title']}]({l['url']})" for l in d["links"] if l.get("type", "source") == "source")
+        update["draft"] = d
         update["route"] = "check"
     except Exception as exc:
         update["route"] = "error"
