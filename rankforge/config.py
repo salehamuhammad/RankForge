@@ -17,7 +17,7 @@ AUTH_SECRET = os.getenv("AUTH_SECRET", "change-me")
 PRICE_IN_PER_MTOK = float(os.getenv("PRICE_IN_PER_MTOK", "1.0"))
 PRICE_OUT_PER_MTOK = float(os.getenv("PRICE_OUT_PER_MTOK", "5.0"))
 PER_USER_SPEND_CAP_USD = float(os.getenv("PER_USER_SPEND_CAP_USD", "0.30"))
-ARTICLE_MAX_TOKENS = int(os.getenv("ARTICLE_MAX_TOKENS", "2500"))
+ARTICLE_MAX_TOKENS = int(os.getenv("ARTICLE_MAX_TOKENS", "4000"))
 CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "600"))
 
 MAX_REWRITES = 2           # Fact-Checker -> Writer loop limit (canvas: max 2 rewrites)

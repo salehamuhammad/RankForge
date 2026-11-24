@@ -326,7 +326,9 @@ def writer(state: RFState, config: RunnableConfig, runtime: Runtime[RFContext]):
     try:
         draft = structured("writer", ArticleDraft,
                            [SystemMessage(writer_prompt(state, ctx, runtime.store)),
-                            HumanMessage(f"Write the article now. User request: {last_human(state)[:500]}")], config)
+                            HumanMessage("Write the article now and return it ONLY through the ArticleDraft tool: put the whole "
+                                         "article in `body`, list the claims and links. Do not write any text outside "
+                                         f"the tool call. User request: {last_human(state)[:500]}")], config)
         d = draft.model_dump()
         # If the model cited sources as [n] in the text but left `links` empty, add exactly those cited sources.
         cited = {int(n) for n in re.findall(r"\[(\d{1,2})\]", d.get("body", ""))}
