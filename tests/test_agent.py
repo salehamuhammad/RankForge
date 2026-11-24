@@ -129,3 +129,10 @@ def test_stubborn_false_claim_is_stripped_before_approval(client, uid):
     b = chat(client, uid, "t1", "Write an article on best tablets, stubborn, and say that every phone sold in Pakistan is tax-free")
     assert "every phone sold in pakistan is tax-free" not in b["reply"].lower()
     assert "Waiting for your approval" in b["reply"]
+
+
+def test_json_written_inside_body_is_cleaned_and_claims_recovered(client, uid):
+    b = chat(client, uid, "t1", "Write an article on budget laptops jsonjunk")
+    assert "Waiting for your approval" in b["reply"]
+    assert '"claims"' not in b["reply"] and "source_url" not in b["reply"]
+    assert "0 claims" not in b["reply"]

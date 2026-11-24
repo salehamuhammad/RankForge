@@ -212,8 +212,38 @@ def _coerce(value):
 BODY_KEYS = ("body", "body_markdown", "content", "article", "article_body", "markdown", "text", "article_text", "draft")
 
 
+JSON_TAIL = re.compile(r'\s*\\?"?\s*,?\s*\\?"(claims|links|meta_description|title)\\?"\s*[:>]', re.S)
+
+
+def _split_json_tail(body: str) -> tuple[str, dict]:
+    """Haiku sometimes writes the rest of the tool arguments INSIDE the body string
+    (... article text", "claims": [{...}], "links": [...]). Cut that off and parse what we can from it."""
+    m = JSON_TAIL.search(body or "")
+    if not m:
+        return body, {}
+    clean, tail = body[:m.start()].rstrip(' \n",\\'), body[m.start():]
+    found = {}
+    dec = json.JSONDecoder()
+    for key in ("claims", "links"):
+        km = re.search(r'\\?"' + key + r'\\?"\s*[:>]\s*', tail)
+        if not km:
+            continue
+        frag = tail[km.end():].replace('\\"', '"')
+        try:
+            found[key], _ = dec.raw_decode(frag)
+        except Exception:
+            pass
+    return clean, found
+
+
 def _normalise(schema, data: dict, raw_text: str = "") -> dict:
     data = _coerce(data)
+    if schema is ArticleDraft and isinstance(data.get("body"), str):
+        body, found = _split_json_tail(data["body"])
+        data["body"] = body
+        for key, val in found.items():
+            if isinstance(val, list) and not data.get(key):
+                data[key] = val
     if schema is ArticleDraft:
         # Haiku sometimes names the article field differently, or writes the article as plain text
         # next to the tool call. Recover it from wherever it is.
@@ -330,6 +360,20 @@ def writer(state: RFState, config: RunnableConfig, runtime: Runtime[RFContext]):
                                          "article in `body`, list the claims and links. Do not write any text outside "
                                          f"the tool call. User request: {last_human(state)[:500]}")], config)
         d = draft.model_dump()
+        body_clean, found = _split_json_tail(d.get("body", ""))     # also covers the normal parse path
+        d["body"] = body_clean
+        if not d.get("claims") and found.get("claims"):
+            d["claims"] = _normalise(ArticleDraft, {"title": d.get("title", ""), "body": body_clean,
+                                                    "claims": found["claims"], "links": []})["claims"]
+        if not d.get("claims"):
+            # every sentence that cites a numbered source is a claim tied to that source
+            main = d["body"].split("## Sources")[0]
+            for sent in re.split(r"(?<=[.!?])\s+|\n+", main):
+                m = re.search(r"\[(\d{1,2})\]", sent)
+                if m and 1 <= int(m.group(1)) <= len(sources) and len(sent.strip()) > 20:
+                    d.setdefault("claims", []).append({"text": re.sub(r"\s+", " ", sent.strip().lstrip("-*# "))[:300],
+                                                       "source_url": sources[int(m.group(1)) - 1]["url"]})
+            d["claims"] = (d.get("claims") or [])[:12]
         # If the model cited sources as [n] in the text but left `links` empty, add exactly those cited sources.
         cited = {int(n) for n in re.findall(r"\[(\d{1,2})\]", d.get("body", ""))}
         have = {l.get("url") for l in d.get("links") or []}
@@ -409,6 +453,13 @@ def fact_checker(state: RFState, config: RunnableConfig):
     # rule 2: the article must actually link its sources
     if not any(l.get("url") in urls for l in draft.get("links") or []):
         unsupported.append("The article has no source links.")
+
+    # rule 1b: an article that states prices/figures must list them as claims (otherwise nothing was verified)
+    main_text = (draft.get("body") or "").split("## Sources")[0]
+    if not claims and re.search(r"(Rs\.?|PKR|\b\d{2,}\b)", main_text):
+        unsupported.append("The article states specific figures but lists no claims with sources.")
+    if re.search(r'"(claims|source_url|links)"\s*:', draft.get("body") or ""):
+        unsupported.append("The article text contains raw JSON; return claims and links in their own fields.")
 
     # rule 2b: a statement the user asked us to include must also be backed by a source
     asked = requested_claim(last_human(state))

@@ -27,6 +27,11 @@ class FakeStructured:
                 claims.append(G.Claim(text="All laptops are tax-free in Pakistan", source_url=""))
             links = [G.Link(title="Source", url=u, type="source") for u in urls[:2]]
             extra = ""
+            if "jsonjunk" in human and urls:            # the live bug: claims written INSIDE the body as raw JSON
+                return G.ArticleDraft(title="Junk Test", meta_description="m",
+                                      body="## Intro\nThe Infinix laptop is Rs. 99,000 [1].\n\n## Sources\n- " + urls[0]
+                                      + '", "claims": [{"text": "Infinix laptop is Rs. 99,000", "source_url": "'
+                                      + urls[0] + '"}], "links": []}', claims=[], links=[])
             if "every phone sold" in human and ("REWRITE" not in system or "stubborn" in human):
                 extra = "\nEvery phone sold in Pakistan is tax-free, which helps buyers.\n"   # unlisted false claim
             return G.ArticleDraft(title="Best Laptops Under 100k PKR", meta_description="Guide",
