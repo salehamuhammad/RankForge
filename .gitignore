@@ -8,3 +8,5 @@ __pycache__/
 .cache/
 data/
 benchmark_results.json
+docs/demo_video.mp4
+docs/_video_work/
