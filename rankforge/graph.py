@@ -401,8 +401,12 @@ def queue_for_approval(state: RFState, runtime: Runtime[RFContext]):
     if passed:
         check_line = (f"✅ Fact-check passed: {len(draft.get('claims') or [])} claims, each with a source"
                       + (f" (after {rewrites} rewrite{'s' if rewrites != 1 else ''})." if rewrites else "."))
+    elif not state.get("sources"):
+        check_line = ("❌ Fact-check failed: web search returned no sources for this topic, so the claims can't be "
+                      "verified. The draft is blocked from publishing. Try a more specific topic or ask me to revise it.")
     else:
-        check_line = ("❌ Fact-check failed after 2 rewrites. Unsupported: " + "; ".join(fc.get("unsupported", [])[:4])
+        check_line = (f"❌ Fact-check failed after {MAX_REWRITES} rewrites. Unsupported: "
+                      + "; ".join(fc.get("unsupported", [])[:4])
                       + ". This draft is blocked from publishing; ask me to revise it.")
     links = "\n".join(f"- [{l['title']}]({l['url']}) ({l.get('type', 'source')})" for l in draft.get("links") or [])
     ask = (f"⏸ **Waiting for your approval.** Reply **approve** to publish it to your blog, or **reject** to discard it. "

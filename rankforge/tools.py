@@ -21,7 +21,8 @@ from rankforge.guard import sanitize_web_text
 
 log = logging.getLogger("rankforge.tools")
 HTTP = requests.Session()
-HTTP.headers["User-Agent"] = "RankForge/1.0 (SEO content engine; student project)"
+HTTP.headers["User-Agent"] = ("RankForge/1.0 (https://github.com/salehamuhammad/RankForge; student project) "
+                              "python-requests")
 _CACHE: dict[str, tuple[float, Any]] = {}
 CACHE_TTL = 6 * 3600
 
@@ -97,6 +98,23 @@ def keyword_search_impl(business_id: str, topic: str) -> list[dict]:
 
 # ── web_search ──
 
+_FILLER = set("""a an the best top cheap cheapest good great new latest under below above over around for in on of to
+and or vs with without price prices pricing rate rates cost pkr rs rupees pakistan pakistani lahore karachi islamabad
+buy buying guide review reviews list which what how is are was were all every each sold say says that this 2024 2025 2026 2027 k""".split())
+
+
+def _simpler_queries(text: str) -> list[str]:
+    words = re.findall(r"[A-Za-z][A-Za-z+.-]*", text)
+    core = [w for w in words if w.lower() not in _FILLER and not re.fullmatch(r"\d+k?", w.lower())]
+    out = [text]
+    if core:
+        out.append(" ".join(core[:4]))
+        out.append(core[0])
+        if core[0].lower().endswith("s") and len(core[0]) > 3:
+            out.append(core[0][:-1])
+    return list(dict.fromkeys(q for q in out if q.strip()))
+
+
 def web_search_impl(claim: str, max_results: int = 5) -> list[dict]:
     """Sources for fact-checking. Tavily if TAVILY_API_KEY is set, else Wikipedia search.
     All returned text is untrusted DATA: instruction-like text is stripped before the model sees it."""
@@ -113,11 +131,17 @@ def web_search_impl(claim: str, max_results: int = 5) -> list[dict]:
                 for x in r.json().get("results", []) if x.get("url")]
 
     def wikipedia():
-        r = HTTP.get("https://en.wikipedia.org/w/api.php", timeout=8, params={
-            "action": "query", "list": "search", "srsearch": claim, "srlimit": max_results,
-            "format": "json", "utf8": 1})
-        r.raise_for_status()
-        hits = r.json().get("query", {}).get("search", [])
+        # Wikipedia search needs every word to match, so long SEO queries find nothing:
+        # try the full query, then the key nouns only (e.g. "best laptops under 100k PKR" -> "laptops").
+        hits = []
+        for q in _simpler_queries(claim):
+            r = HTTP.get("https://en.wikipedia.org/w/api.php", timeout=8, params={
+                "action": "query", "list": "search", "srsearch": q, "srlimit": max_results,
+                "format": "json", "utf8": 1})
+            r.raise_for_status()
+            hits = r.json().get("query", {}).get("search", [])
+            if hits:
+                break
         return [{"title": h["title"], "url": "https://en.wikipedia.org/wiki/" + h["title"].replace(" ", "_"),
                  "snippet": re.sub(r"<[^>]+>", "", h.get("snippet", ""))} for h in hits]
 
