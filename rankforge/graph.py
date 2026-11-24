@@ -361,6 +361,36 @@ def after_writer(state: RFState):
 
 # ── 5. Fact-Checker ──
 
+# Statements the USER asked to be included ("... and say that X") are claims too: they need a source.
+REQUESTED_CLAIM = re.compile(r"(?:\b(?:and|but|also|then|plus)|[,;])\s+(?:please\s+)?(?:say|state|claim|mention|include|add|"
+                             r"write|tell (?:readers|them))\s+(?:that\s+)?(.{8,200})", re.I)
+_STOP = set("the a an is are was were be that this of in on to for and or it its all every any each".split())
+
+
+def requested_claim(request: str) -> str:
+    m = REQUESTED_CLAIM.search(request or "")
+    return re.split(r"[.!?\n]", m.group(1))[0].strip(" \"'") if m else ""
+
+
+def _content_words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9-]+", text.lower()) if w not in _STOP and len(w) > 2}
+
+
+def sentences_with_claim(body: str, claim: str) -> list[str]:
+    """Sentences of the article that repeat the user-requested claim (>= 75% of its key words)."""
+    key = _content_words(claim)
+    if not key:
+        return []
+    sents = re.split(r"(?<=[.!?])\s+|\n+", body or "")
+    return [s for s in sents if len(key & _content_words(s)) >= max(2, int(0.75 * len(key)))]
+
+
+def strip_claim(body: str, claim: str) -> str:
+    for s in sentences_with_claim(body, claim):
+        body = body.replace(s, "")
+    return re.sub(r"\n{3,}", "\n\n", body).strip()
+
+
 class FactCheck(BaseModel):
     passed: bool
     unsupported_claims: list[str] = Field(default_factory=list)
@@ -379,6 +409,15 @@ def fact_checker(state: RFState, config: RunnableConfig):
     # rule 2: the article must actually link its sources
     if not any(l.get("url") in urls for l in draft.get("links") or []):
         unsupported.append("The article has no source links.")
+
+    # rule 2b: a statement the user asked us to include must also be backed by a source
+    asked = requested_claim(last_human(state))
+    if asked and sentences_with_claim(draft.get("body", ""), asked):
+        backed = any(_content_words(asked) <= _content_words(c["text"]) and (c.get("source_url") or "") in urls
+                     for c in claims)
+        if not backed:
+            unsupported.append(f"User-requested statement with no supporting source: \"{asked}\" "
+                               "(remove it completely; do not repeat it, even to deny it)")
 
     # try to find a source for unsourced claims, so the rewrite can cite it (max 2 searches)
     for claim in [c for c in unsupported if not c.startswith("The article")][:2]:
@@ -427,7 +466,15 @@ def after_fact_check(state: RFState):
 
 def queue_for_approval(state: RFState, runtime: Runtime[RFContext]):
     ctx = runtime.context
-    draft, fc = state.get("draft") or {}, state.get("fact_check") or {}
+    draft, fc = dict(state.get("draft") or {}), dict(state.get("fact_check") or {})
+    asked = requested_claim(last_human(state))
+    if asked and sentences_with_claim(draft.get("body", ""), asked):
+        # still there after the rewrites: remove those sentences rather than publish an unsourced claim
+        draft["body"] = strip_claim(draft.get("body", ""), asked)
+        draft["claims"] = [c for c in draft.get("claims") or [] if not sentences_with_claim(c["text"], asked)]
+        fc["unsupported"] = [u for u in fc.get("unsupported", []) if "User-requested" not in u]
+        fc["passed"] = not fc["unsupported"]
+        fc["notes"] = (fc.get("notes", "") + f" Removed unsourced user-requested statement: {asked}").strip()
     passed = bool(fc.get("passed"))
     old = state.get("pending_action") or {}
     status = "pending" if passed else "needs_revision"
@@ -441,12 +488,15 @@ def queue_for_approval(state: RFState, runtime: Runtime[RFContext]):
     if passed:
         check_line = (f"✅ Fact-check passed: {len(draft.get('claims') or [])} claims, each with a source"
                       + (f" (after {rewrites} rewrite{'s' if rewrites != 1 else ''})." if rewrites else "."))
+        if asked and state.get("rewrite_count", 0):
+            check_line += (" The Fact-Checker rejected a statement you asked for because no source supports it, "
+                           "so the Writer removed it.")
     elif not state.get("sources"):
         check_line = ("❌ Fact-check failed: web search returned no sources for this topic, so the claims can't be "
                       "verified. The draft is blocked from publishing. Try a more specific topic or ask me to revise it.")
     else:
         check_line = (f"❌ Fact-check failed after {MAX_REWRITES} rewrites. Unsupported: "
-                      + "; ".join(fc.get("unsupported", [])[:4])
+                      + "; ".join(u.split(":")[0] if "User-requested" in u else u for u in fc.get("unsupported", [])[:4])
                       + ". This draft is blocked from publishing; ask me to revise it.")
     links = "\n".join(f"- [{l['title']}]({l['url']}) ({l.get('type', 'source')})" for l in draft.get("links") or [])
     ask = (f"⏸ **Waiting for your approval.** Reply **approve** to publish it to your blog, or **reject** to discard it. "

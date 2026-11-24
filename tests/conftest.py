@@ -26,8 +26,11 @@ class FakeStructured:
             if "tax-free" in human and "REWRITE" not in system:      # user-requested unsourced claim
                 claims.append(G.Claim(text="All laptops are tax-free in Pakistan", source_url=""))
             links = [G.Link(title="Source", url=u, type="source") for u in urls[:2]]
+            extra = ""
+            if "every phone sold" in human and ("REWRITE" not in system or "stubborn" in human):
+                extra = "\nEvery phone sold in Pakistan is tax-free, which helps buyers.\n"   # unlisted false claim
             return G.ArticleDraft(title="Best Laptops Under 100k PKR", meta_description="Guide",
-                                  body="## Intro\nLaptops [1]\n\n## Sources\n" + "\n".join(urls[:2]),
+                                  body="## Intro\nLaptops [1]" + extra + "\n\n## Sources\n" + "\n".join(urls[:2]),
                                   claims=claims, links=links)
         if self.schema is G.FactCheck:
             return G.FactCheck(passed=True)

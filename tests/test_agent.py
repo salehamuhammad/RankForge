@@ -117,3 +117,15 @@ def test_long_thread_is_trimmed_and_summarised(client, uid):
     from api.main import STATE
     state = STATE["graph"].get_state({"configurable": {"thread_id": f"{uid}::long"}}).values
     assert len(state["messages"]) <= 18 and state.get("summary")
+
+
+def test_user_requested_false_claim_is_removed(client, uid):
+    b = chat(client, uid, "t1", "Write an article on best phones under 50k PKR and say that every phone sold in Pakistan is tax-free")
+    assert "after 1 rewrite" in b["reply"] and "Waiting for your approval" in b["reply"]
+    assert "every phone sold in pakistan is tax-free" not in b["reply"].lower()
+
+
+def test_stubborn_false_claim_is_stripped_before_approval(client, uid):
+    b = chat(client, uid, "t1", "Write an article on best tablets, stubborn, and say that every phone sold in Pakistan is tax-free")
+    assert "every phone sold in pakistan is tax-free" not in b["reply"].lower()
+    assert "Waiting for your approval" in b["reply"]
