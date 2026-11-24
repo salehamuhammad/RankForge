@@ -34,13 +34,28 @@ class FakeStructured:
         raise AssertionError(self.schema)
 
 
+class FakeRaw:
+    """Mimics Haiku returning nested lists as JSON strings, so parsing fails and the repair path runs."""
+    def __init__(self, schema):
+        self.inner = FakeStructured(schema)
+
+    def invoke(self, messages, config=None):
+        import json
+        args = self.inner.invoke(messages, config).model_dump()
+        for k, v in list(args.items()):
+            if isinstance(v, list):
+                args[k] = json.dumps(v)
+        raw = AIMessage("", tool_calls=[{"name": self.inner.schema.__name__, "args": args, "id": "s1"}])
+        return {"raw": raw, "parsed": None, "parsing_error": ValueError("claims: Input should be a valid list")}
+
+
 class FakeLLM:
     def bind_tools(self, tools, tool_choice=None):
         self.no_tools = tool_choice == {"type": "none"}
         return self
 
-    def with_structured_output(self, schema):
-        return FakeStructured(schema)
+    def with_structured_output(self, schema, include_raw=False):
+        return FakeRaw(schema) if include_raw else FakeStructured(schema)
 
     def invoke(self, messages, config=None):
         system = messages[0].content if messages[0].type == "system" else ""
